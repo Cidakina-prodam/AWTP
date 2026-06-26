@@ -528,4 +528,413 @@ def form_tarefa():
                 hora = st.text_input("Horário", value=edit.get("hora","") if edit else "", placeholder="Ex: 14h30")
         if tipo == "reuniao":
             local = st.text_input("Local ou link", value=edit.get("local","") if edit else "")
-            pauta_txt = st.text_area("Pauta prévia (uma por linha)", value="\n".join(edit.get("pauta",[]) if edit else []), he
+            pauta_val = chr(10).join(edit.get("pauta",[]) if edit else [])
+            pauta_txt = st.text_area("Pauta prévia (uma por linha)", value=pauta_val, height=80)
+
+        # Lembrete
+        lem = st.checkbox("🔔 Ativar lembrete por notificação", value=edit.get("lembrete",False) if edit else False)
+        lem_hora = "08:00"; lem_ante = 0
+        if lem:
+            col1, col2 = st.columns(2)
+            with col1:
+                lem_hora = st.text_input("Avisar no horário (HH:MM)", value=edit.get("lembreteHora","08:00") if edit else "08:00")
+            with col2:
+                lem_ante = st.selectbox("Com antecedência",
+                    options=[0,1,2,3],
+                    index=edit.get("lembreteAnte",0) if edit else 0,
+                    format_func=lambda x: {0:"No dia",1:"1 dia antes",2:"2 dias antes",3:"3 dias antes"}[x])
+
+        # Processo
+        tem_proc = st.checkbox("⤵ Esta tarefa tem processo (passo a passo)?",
+                               value=bool(edit.get("passos") if edit else False))
+        passos = []
+        if tem_proc:
+            n_passos = st.number_input("Quantos passos?", min_value=1, max_value=20,
+                                       value=max(len(edit.get("passos",[])),1) if edit else 3)
+            for i in range(int(n_passos)):
+                val = edit["passos"][i]["texto"] if edit and edit.get("passos") and i < len(edit["passos"]) else ""
+                feito = edit["passos"][i]["feito"] if edit and edit.get("passos") and i < len(edit["passos"]) else False
+                txt = st.text_input(f"Passo {i+1}", value=val, key=f"passo_{i}")
+                if txt.strip():
+                    passos.append({"texto": txt.strip(), "feito": feito})
+
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("💾 Salvar", type="primary", use_container_width=True):
+                if not titulo.strip():
+                    st.error("Informe o título.")
+                else:
+                    obj = {
+                        "id": edit["id"] if edit else str(int(datetime.now().timestamp()*1000)),
+                        "tipo": tipo, "titulo": titulo.strip(), "desc": desc.strip(),
+                        "resp": resp.strip(), "prio": prio,
+                        "prazo": prazo, "hora": hora.strip(),
+                        "local": local.strip() if tipo=="reuniao" else "",
+                        "pauta": [x.strip() for x in pauta_txt.split("\n") if x.strip()] if tipo=="reuniao" else [],
+                        "recorrencia": rec if tipo=="recorrente" else None,
+                        "dias": dias_sel if rec=="semanal" else None,
+                        "diaMes": dia_mes if rec in ["quinzenal","mensal"] else "",
+                        "passos": passos,
+                        "lembrete": lem, "lembreteHora": lem_hora, "lembreteAnte": lem_ante,
+                        "status": edit.get("status","pendente") if edit else "pendente",
+                        "criado": edit.get("criado", hoje()) if edit else hoje(),
+                        "pessoa": st.session_state.pessoa,
+                    }
+                    if edit:
+                        st.session_state.tarefas = [obj if t["id"]==edit["id"] else t for t in st.session_state.tarefas]
+                    else:
+                        st.session_state.tarefas.append(obj)
+                    salvar_tudo()
+                    st.session_state.form_open = None
+                    st.session_state.edit_id = None
+                    st.rerun()
+        with col2:
+            if st.button("✗ Cancelar", use_container_width=False):
+                st.session_state.form_open = None
+                st.session_state.edit_id = None
+                st.rerun()
+
+def form_pendencia():
+    edit = None
+    if st.session_state.edit_id:
+        edit = next((p for p in st.session_state.pendencias if p["id"] == st.session_state.edit_id), None)
+
+    with st.expander("✏️ Pendência" if edit else "➕ Nova pendência", expanded=True):
+        desc = st.text_area("Descrição da pendência *", value=edit.get("desc","") if edit else "", height=90)
+        col1, col2 = st.columns(2)
+        with col1:
+            quem = st.text_input("Quem está envolvido", value=edit.get("quem","") if edit else "")
+        with col2:
+            pv = None
+            if edit and edit.get("prazo"):
+                try: pv = date.fromisoformat(edit["prazo"])
+                except: pv = None
+            prazo_d = st.date_input("Prazo (se houver)", value=pv)
+            prazo = prazo_d.isoformat() if prazo_d else ""
+        status = st.radio("Status", ["aberta","encaminhada","resolvida"],
+                         index=["aberta","encaminhada","resolvida"].index(edit.get("status","aberta")) if edit else 0,
+                         horizontal=True,
+                         format_func=lambda x: {"aberta":"🔴 Aberta","encaminhada":"🔵 Encaminhada","resolvida":"🟢 Resolvida"}[x])
+        col1, col2 = st.columns([1,5])
+        with col1:
+            if st.button("💾 Salvar", type="primary", use_container_width=True):
+                if not desc.strip():
+                    st.error("Descreva a pendência.")
+                else:
+                    obj = {
+                        "id": edit["id"] if edit else str(int(datetime.now().timestamp()*1000)),
+                        "desc": desc.strip(), "quem": quem.strip(),
+                        "prazo": prazo, "status": status,
+                        "encaminhamentos": edit.get("encaminhamentos",[]) if edit else [],
+                        "criado": edit.get("criado", hoje()) if edit else hoje(),
+                        "pessoa": st.session_state.pessoa,
+                    }
+                    if edit:
+                        st.session_state.pendencias = [obj if p["id"]==edit["id"] else p for p in st.session_state.pendencias]
+                    else:
+                        st.session_state.pendencias.append(obj)
+                    salvar_tudo()
+                    st.session_state.form_open = None
+                    st.session_state.edit_id = None
+                    st.rerun()
+        with col2:
+            if st.button("✗ Cancelar", key="canc_pend"):
+                st.session_state.form_open = None
+                st.session_state.edit_id = None
+                st.rerun()
+
+def form_encaminhamento():
+    pend_id = st.session_state.edit_id
+    pend = next((p for p in st.session_state.pendencias if p["id"] == pend_id), None)
+    titulo_pend = pend.get("desc","")[:60] if pend else ""
+
+    with st.expander(f"↪ Encaminhar: {titulo_pend}", expanded=True):
+        if not pend:
+            st.warning("Pendência não encontrada.")
+        else:
+            desc = st.text_area("O que foi encaminhado / decidido *", height=90)
+            col1, col2 = st.columns(2)
+            with col1:
+                prazo_d = st.date_input("Prazo dado pelo gerente", value=None)
+                prazo = prazo_d.isoformat() if prazo_d else ""
+            with col2:
+                novo_status = st.radio("Novo status", ["encaminhada","resolvida","aberta"],
+                                      horizontal=True,
+                                      format_func=lambda x: {"aberta":"🔴 Aberta","encaminhada":"🔵 Encaminhada","resolvida":"🟢 Resolvida"}[x])
+            col1, col2 = st.columns([1,5])
+            with col1:
+                if st.button("💾 Salvar", type="primary", use_container_width=True):
+                    if not desc.strip():
+                        st.error("Descreva o encaminhamento.")
+                    else:
+                        enc = {"id": str(int(datetime.now().timestamp()*1000)),
+                               "desc": desc.strip(), "prazo": prazo,
+                               "status": novo_status, "data": hoje(),
+                               "pessoa": st.session_state.pessoa}
+                        for p in st.session_state.pendencias:
+                            if p["id"] == pend_id:
+                                p.setdefault("encaminhamentos",[]).append(enc)
+                                p["status"] = novo_status
+                        salvar_tudo()
+                        st.session_state.form_open = None
+                        st.session_state.edit_id = None
+                        st.rerun()
+            with col2:
+                if st.button("✗ Cancelar", key="canc_enc"):
+                    st.session_state.form_open = None
+                    st.session_state.edit_id = None
+                    st.rerun()
+
+# ── SIDEBAR ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### ✅ Gestão da Equipe")
+
+    nome = st.text_input("Seu nome", value=st.session_state.pessoa, placeholder="Ex: Ana, João...")
+    if nome != st.session_state.pessoa:
+        st.session_state.pessoa = nome
+
+    st.markdown("---")
+    st.markdown("**Visão geral**")
+    ativas = [t for t in st.session_state.tarefas if t.get("status") != "concluida"]
+    pend_ab = [p for p in st.session_state.pendencias if p.get("status") != "resolvida"]
+    venc = [t for t in ativas if status_prazo(t.get("prazo","")) in ["vencido","urgente"]]
+
+    views = {
+        "dashboard": "📊 Dashboard",
+        "todas": f"📋 Todas as tarefas ({len(ativas)})",
+        "recorrentes": "↻ Recorrentes",
+        "reunioes": "👥 Reuniões",
+        "avulsas": "☑ Avulsas",
+        "kanban": "⬛ Kanban",
+    }
+    for k, v in views.items():
+        if st.button(v, key=f"nav_{k}", use_container_width=True,
+                     type="primary" if st.session_state.view == k else "secondary"):
+            st.session_state.view = k
+            st.session_state.form_open = None
+            st.rerun()
+
+    st.markdown("**Pendências**")
+    pend_views = {
+        "pendencias": f"⏳ Lista ({len(pend_ab)} abertas)",
+        "pauta": "📋 Pauta p/ gerente",
+    }
+    for k, v in pend_views.items():
+        if st.button(v, key=f"nav_{k}", use_container_width=True,
+                     type="primary" if st.session_state.view == k else "secondary"):
+            st.session_state.view = k
+            st.session_state.form_open = None
+            st.rerun()
+
+    st.markdown("**Filtros**")
+    filter_views = {
+        "vencendo": f"🔴 Vencendo ({len(venc)})",
+        "concluidas": "✅ Concluídas",
+    }
+    for k, v in filter_views.items():
+        if st.button(v, key=f"nav_{k}", use_container_width=True,
+                     type="primary" if st.session_state.view == k else "secondary"):
+            st.session_state.view = k
+            st.session_state.form_open = None
+            st.rerun()
+
+    st.markdown("---")
+    if st.button("🔔 Testar aviso", use_container_width=True):
+        st.session_state["testar_notif"] = True
+        st.rerun()
+
+# ── WIDGET DE NOTIFICAÇÕES ─────────────────────────────────────────────────────
+testar = st.session_state.pop("testar_notif", False)
+t_teste = next((t for t in st.session_state.tarefas if t.get("lembrete")), None)
+widget_notificacoes(
+    st.session_state.tarefas,
+    testar=testar,
+    titulo_teste=t_teste["titulo"] if t_teste else "Teste de aviso",
+    desc_teste=t_teste.get("desc","") if t_teste else "Funcionando!"
+)
+
+# ── VIEWS ──────────────────────────────────────────────────────────────────────
+view = st.session_state.view
+tarefas = st.session_state.tarefas
+pendencias = st.session_state.pendencias
+ativas = [t for t in tarefas if t.get("status") != "concluida"]
+
+# Formulários no topo
+if st.session_state.form_open == "tarefa":
+    form_tarefa()
+elif st.session_state.form_open == "pendencia":
+    form_pendencia()
+elif st.session_state.form_open == "encaminhamento":
+    form_encaminhamento()
+
+# ── DASHBOARD ──────────────────────────────────────────────────────────────────
+if view == "dashboard" and not st.session_state.form_open:
+    conc = [t for t in tarefas if t.get("status") == "concluida"]
+    venc_n = [t for t in ativas if status_prazo(t.get("prazo","")) == "vencido"]
+    urg_n = [t for t in ativas if status_prazo(t.get("prazo","")) == "urgente"]
+    pend_ab = [p for p in pendencias if p.get("status") != "resolvida"]
+
+    c1,c2,c3,c4,c5 = st.columns(5)
+    for col, val, lbl, cor in [
+        (c1, len(ativas), "Ativas", "#18180f"),
+        (c2, len(venc_n), "Atrasadas", "#a32d2d"),
+        (c3, len(urg_n), "Urgentes", "#854f0b"),
+        (c4, len(pend_ab), "Pendências abertas", "#993c1d"),
+        (c5, len(conc), "Concluídas", "#3b6d11"),
+    ]:
+        col.markdown(f"""<div class="stat-box">
+          <div class="stat-val" style="color:{cor}">{val}</div>
+          <div class="stat-lbl">{lbl}</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    prox = sorted([t for t in ativas if t.get("prazo")], key=lambda t: t["prazo"])[:5]
+    if prox:
+        st.markdown("### 🕐 Próximos vencimentos")
+        for t in prox:
+            render_tarefa(t, "dash")
+
+    if pend_ab:
+        st.markdown("### ⏳ Pendências em aberto")
+        for p in pend_ab[:3]:
+            render_pendencia(p, "dash")
+        if len(pend_ab) > 3:
+            if st.button(f"Ver todas as {len(pend_ab)} pendências"):
+                st.session_state.view = "pendencias"
+                st.rerun()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ Nova tarefa", type="primary", use_container_width=True):
+            st.session_state.form_open = "tarefa"
+            st.session_state.edit_id = None
+            st.rerun()
+    with col2:
+        if st.button("➕ Nova pendência", use_container_width=True):
+            st.session_state.form_open = "pendencia"
+            st.session_state.edit_id = None
+            st.rerun()
+
+# ── LISTAS DE TAREFAS ──────────────────────────────────────────────────────────
+elif view in ["todas","recorrentes","reunioes","avulsas","vencendo","concluidas"] and not st.session_state.form_open:
+    filtros = {
+        "todas": (lambda t: t.get("status")!="concluida", "📋 Todas as tarefas"),
+        "recorrentes": (lambda t: t.get("tipo")=="recorrente" and t.get("status")!="concluida", "↻ Tarefas recorrentes"),
+        "reunioes": (lambda t: t.get("tipo")=="reuniao" and t.get("status")!="concluida", "👥 Reuniões"),
+        "avulsas": (lambda t: t.get("tipo")=="avulsa" and t.get("status")!="concluida", "☑ Tarefas avulsas"),
+        "vencendo": (lambda t: t.get("status")!="concluida" and status_prazo(t.get("prazo","")) in ["vencido","urgente"], "🔴 Vencendo / Atrasadas"),
+        "concluidas": (lambda t: t.get("status")=="concluida", "✅ Concluídas"),
+    }
+    fn, titulo = filtros[view]
+    lista = sorted([t for t in tarefas if fn(t)],
+                   key=lambda t: (t.get("status")=="concluida", ["vencido","urgente","ok"].index(status_prazo(t.get("prazo",""))) if status_prazo(t.get("prazo","")) in ["vencido","urgente","ok"] else 3, t.get("prazo","9")))
+
+    col1, col2 = st.columns([4,1])
+    with col1:
+        st.markdown(f"### {titulo} ({len(lista)})")
+    with col2:
+        if st.button("➕ Nova tarefa", type="primary", use_container_width=True):
+            st.session_state.form_open = "tarefa"
+            st.session_state.edit_id = None
+            st.rerun()
+
+    if lista:
+        for t in lista:
+            render_tarefa(t, view)
+    else:
+        st.info("Nenhuma tarefa aqui.")
+
+# ── KANBAN ─────────────────────────────────────────────────────────────────────
+elif view == "kanban" and not st.session_state.form_open:
+    st.markdown("### ⬛ Kanban")
+    colunas = [("pendente","Pendente"),("em andamento","Em andamento"),("aguardando","Aguardando"),("concluida","Concluída")]
+    cols = st.columns(4)
+    for col, (status_k, label) in zip(cols, colunas):
+        with col:
+            cards = [t for t in tarefas if t.get("status") == status_k]
+            st.markdown(f"**{label}** ({len(cards)})")
+            st.markdown("---")
+            for t in cards:
+                pb = prazo_badge(t.get("prazo",""))
+                st.markdown(f"""<div class="card">
+                  <div style="font-size:13px;font-weight:600">{t.get('titulo','')}</div>
+                  <div style="margin-top:4px">{pb}</div>
+                  <div style="font-size:11px;color:#9a9a8e;margin-top:2px">{t.get('resp','')}</div>
+                </div>""", unsafe_allow_html=True)
+                if status_k != "concluida":
+                    prox_status = {"pendente":"em andamento","em andamento":"aguardando","aguardando":"concluida"}.get(status_k,"")
+                    if st.button(f"→ {prox_status.capitalize()}", key=f"kb_{t['id']}"):
+                        st.session_state[f"confirm_kb_{t['id']}"] = prox_status
+                if st.session_state.get(f"confirm_kb_{t['id']}"):
+                    ns = st.session_state[f"confirm_kb_{t['id']}"]
+                    st.warning(f"Mover para **{ns}**?")
+                    kc1,kc2=st.columns(2)
+                    with kc1:
+                        if st.button("✓",key=f"kb_ok_{t['id']}"):
+                            for tarefa in st.session_state.tarefas:
+                                if tarefa["id"]==t["id"]:
+                                    tarefa["status"]=ns
+                                    if ns=="concluida": tarefa["concluido"]=hoje()
+                            salvar_tudo()
+                            st.session_state.pop(f"confirm_kb_{t['id']}",None)
+                            st.rerun()
+                    with kc2:
+                        if st.button("✗",key=f"kb_no_{t['id']}"):
+                            st.session_state.pop(f"confirm_kb_{t['id']}",None)
+                            st.rerun()
+
+# ── PENDÊNCIAS ─────────────────────────────────────────────────────────────────
+elif view == "pendencias" and not st.session_state.form_open:
+    col1, col2, col3 = st.columns([3,1,1])
+    with col1:
+        st.markdown(f"### ⏳ Lista de pendências ({len(pendencias)})")
+    with col2:
+        if st.button("↪ Encaminhar", use_container_width=True):
+            pend_ab2 = [p for p in pendencias if p.get("status")!="resolvida"]
+            if pend_ab2:
+                st.session_state.edit_id = pend_ab2[0]["id"]
+            st.session_state.form_open = "encaminhamento"
+            st.rerun()
+    with col3:
+        if st.button("➕ Nova", type="primary", use_container_width=True):
+            st.session_state.form_open = "pendencia"
+            st.session_state.edit_id = None
+            st.rerun()
+
+    ordem = {"aberta":0,"encaminhada":1,"resolvida":2}
+    lista_p = sorted(pendencias, key=lambda p: ordem.get(p.get("status","aberta"),3))
+    if lista_p:
+        for p in lista_p:
+            render_pendencia(p, "pend")
+    else:
+        st.info("Nenhuma pendência cadastrada.")
+
+# ── PAUTA ──────────────────────────────────────────────────────────────────────
+elif view == "pauta" and not st.session_state.form_open:
+    abertas = [p for p in pendencias if p.get("status") != "resolvida"]
+    hoje_str = datetime.now().strftime("%d/%m/%Y")
+    st.markdown(f"### 📋 Pauta para o gerente — {hoje_str}")
+    st.markdown(f"**{len(abertas)} pendência(s) em aberto**")
+
+    if abertas:
+        for i, p in enumerate(abertas):
+            with st.expander(f"{i+1}. {p.get('desc','')[:80]}", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    if p.get("quem"):
+                        st.markdown(f"**Envolvido:** {p['quem']}")
+                with col2:
+                    if p.get("prazo"):
+                        st.markdown(f"**Prazo:** {fmt_data(p['prazo'])}")
+                status_label = {"aberta":"🔴 Aberta","encaminhada":"🔵 Encaminhada","resolvida":"🟢 Resolvida"}.get(p.get("status","aberta"),"")
+                st.markdown(f"**Status:** {status_label}")
+                encs = p.get("encaminhamentos",[])
+                if encs:
+                    st.markdown("**Histórico:**")
+                    for e in encs:
+                        st.markdown(f"&nbsp;&nbsp;· {fmt_data(e.get('data',''))} — {e.get('desc','')} {'· prazo: '+fmt_data(e['prazo']) if e.get('prazo') else ''}")
+                st.markdown("---")
+                st.markdown("**Encaminhamento / instrução do gerente:**")
+                st.text_input("", placeholder="Anote aqui a instrução...", key=f"pauta_enc_{p['id']}", label_visibility="collapsed")
+    else:
+        st.success("🎉 Nenhuma pendência em aberto para a pauta!")
