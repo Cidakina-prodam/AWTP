@@ -42,9 +42,9 @@ def salvar_tudo():
 # ── NOTIFICAÇÕES (JS injetado) ──────────────────────────────────────────────────
 def widget_notificacoes(tarefas, testar=False, titulo_teste="", desc_teste=""):
     """
-    Componente HTML autossuficiente que roda dentro do iframe do Streamlit.
-    Usa position:fixed relativo ao iframe — visível dentro do app.
-    Notificação nativa do browser funciona pois Streamlit Cloud é https.
+    Componente sempre presente no sidebar.
+    Usa Notification API nativa (funciona em https do Streamlit Cloud).
+    Salva tarefas no localStorage para o intervalo continuar mesmo após reruns.
     """
     tarefas_json = json.dumps(tarefas, ensure_ascii=False)
     modo = "testar" if testar else "checar"
@@ -52,35 +52,35 @@ def widget_notificacoes(tarefas, testar=False, titulo_teste="", desc_teste=""):
 <html>
 <head>
 <style>
-  body {{ margin:0; padding:0; background:transparent; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }}
-  #toast {{
-    display:none; position:fixed; bottom:16px; right:16px;
-    background:#fff; border:1.5px solid #e08a00; border-left:5px solid #e08a00;
-    border-radius:10px; padding:14px 16px; max-width:300px;
-    box-shadow:0 8px 32px rgba(0,0,0,.22); z-index:9999;
-  }}
+  body {{ margin:0; padding:0; background:transparent; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; overflow:hidden; }}
+  #wrap {{ padding:4px 0; }}
+  #perm-btn {{ display:none; width:100%; padding:7px 10px; background:#eaf3de; border:1px solid #3b6d11; border-radius:6px; color:#27500a; font-size:12px; cursor:pointer; }}
+  #toast {{ display:none; background:#fff; border:1.5px solid #e08a00; border-left:5px solid #e08a00; border-radius:8px; padding:10px 12px; box-shadow:0 4px 16px rgba(0,0,0,.18); }}
   #toast.show {{ display:block; }}
-  .t-label {{ font-size:10px; font-weight:700; color:#854f0b; text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }}
-  .t-title {{ font-size:14px; font-weight:600; color:#18180f; }}
-  .t-desc {{ font-size:12px; color:#5a5a50; margin-top:2px; }}
-  #t-close {{ float:right; border:none; background:none; cursor:pointer; color:#9a9a8e; font-size:20px; line-height:1; padding:0; margin-left:8px; }}
-  #perm-btn {{
-    display:none; width:100%; padding:8px; background:#eaf3de; border:1px solid #3b6d11;
-    border-radius:6px; color:#27500a; font-size:13px; cursor:pointer; margin-top:4px;
-  }}
+  .tl {{ font-size:10px; font-weight:700; color:#854f0b; text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px; }}
+  .tt {{ font-size:13px; font-weight:600; color:#18180f; }}
+  .td {{ font-size:11px; color:#5a5a50; margin-top:2px; }}
+  #tc {{ float:right; border:none; background:none; cursor:pointer; color:#9a9a8e; font-size:18px; line-height:1; padding:0; margin-left:6px; }}
+  #status {{ font-size:10px; color:#9a9a8e; padding:2px 0; }}
 </style>
 </head>
 <body>
-<button id="perm-btn" onclick="pedirPermissao()">🔔 Clique para ativar notificações do sistema</button>
-<div id="toast">
-  <button id="t-close" onclick="fechar()">×</button>
-  <div class="t-label" id="t-label">Lembrete</div>
-  <div class="t-title" id="t-title"></div>
-  <div class="t-desc" id="t-desc"></div>
+<div id="wrap">
+  <div id="status">⏱ Monitorando lembretes...</div>
+  <button id="perm-btn" onclick="pedirPermissao()">🔔 Ativar notificações do sistema</button>
+  <div id="toast">
+    <button id="tc" onclick="fechar()">×</button>
+    <div class="tl" id="tl">Lembrete</div>
+    <div class="tt" id="tt"></div>
+    <div class="td" id="td"></div>
+  </div>
 </div>
 <script>
-var tarefas = {tarefas_json};
+// Salvar tarefas no localStorage para persistir entre reruns
+var tarefasNovas = {tarefas_json};
 var modo = "{modo}";
+localStorage.setItem('gt_tarefas', JSON.stringify(tarefasNovas));
+
 var hoje = new Date().toISOString().split('T')[0];
 var diaSem = ['dom','seg','ter','qua','qui','sex','sab'][new Date().getDay()];
 
@@ -88,56 +88,53 @@ function fechar(){{ document.getElementById('toast').classList.remove('show'); }
 
 function tocarSom(){{
   try{{
-    var ctx = new(window.AudioContext||window.webkitAudioContext)();
+    var ctx=new(window.AudioContext||window.webkitAudioContext)();
     function bip(f,t,d){{
-      var o=ctx.createOscillator(), g=ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.type='sine'; o.frequency.value=f;
-      g.gain.setValueAtTime(0, ctx.currentTime+t);
-      g.gain.linearRampToValueAtTime(0.35, ctx.currentTime+t+0.02);
-      g.gain.linearRampToValueAtTime(0, ctx.currentTime+t+d);
-      o.start(ctx.currentTime+t); o.stop(ctx.currentTime+t+d+0.1);
+      var o=ctx.createOscillator(),g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);o.type='sine';o.frequency.value=f;
+      g.gain.setValueAtTime(0,ctx.currentTime+t);
+      g.gain.linearRampToValueAtTime(0.35,ctx.currentTime+t+0.02);
+      g.gain.linearRampToValueAtTime(0,ctx.currentTime+t+d);
+      o.start(ctx.currentTime+t);o.stop(ctx.currentTime+t+d+0.1);
     }}
-    bip(880,0,0.15); bip(880,0.2,0.15); bip(1100,0.4,0.25);
-  }}catch(e){{ console.warn('Som falhou',e); }}
+    bip(880,0,0.15);bip(880,0.2,0.15);bip(1100,0.4,0.25);
+  }}catch(e){{}}
 }}
 
-function mostrarToast(titulo, desc){{
-  var hora = new Date().toLocaleTimeString('pt-BR',{{hour:'2-digit',minute:'2-digit'}});
-  document.getElementById('t-label').textContent = 'Lembrete · ' + hora;
-  document.getElementById('t-title').textContent = titulo;
-  document.getElementById('t-desc').textContent = desc||'';
+function mostrarToast(titulo,desc){{
+  var hora=new Date().toLocaleTimeString('pt-BR',{{hour:'2-digit',minute:'2-digit'}});
+  document.getElementById('tl').textContent='Lembrete · '+hora;
+  document.getElementById('tt').textContent=titulo;
+  document.getElementById('td').textContent=desc||'';
   document.getElementById('toast').classList.add('show');
   tocarSom();
-  // Notificação nativa (funciona em https)
-  if(window.Notification && Notification.permission==='granted'){{
-    try{{ new Notification('🔔 '+titulo, {{body: desc||titulo}}); }}catch(e){{}}
+  if(window.Notification&&Notification.permission==='granted'){{
+    try{{new Notification('🔔 '+titulo,{{body:desc||titulo}});}}catch(e){{}}
   }}
 }}
 
 function pedirPermissao(){{
-  if(!window.Notification) return;
+  if(!window.Notification)return;
   Notification.requestPermission().then(function(p){{
     document.getElementById('perm-btn').style.display='none';
-    if(p==='granted') mostrarToast('Notificações ativadas!','Você receberá alertas mesmo com a aba em segundo plano.');
+    if(p==='granted')mostrarToast('✅ Notificações ativadas!','Você será avisada mesmo com a aba em segundo plano.');
   }});
 }}
 
-function deveAvisarHoje(t){{
-  if(t.status==='concluida'||!t.lembrete) return false;
+function deveAvisar(t){{
+  if(t.status==='concluida'||!t.lembrete)return false;
   if(t.tipo==='avulsa'||t.tipo==='reuniao'){{
-    if(!t.prazo) return false;
+    if(!t.prazo)return false;
     var d=new Date(t.prazo+'T00:00:00');
     d.setDate(d.getDate()-(t.lembreteAnte||0));
     return d.toISOString().split('T')[0]===hoje;
   }}
   if(t.tipo==='recorrente'){{
-    if(t.recorrencia==='diaria') return true;
-    if(t.recorrencia==='semanal'&&t.dias) return t.dias.indexOf(diaSem)>=0;
+    if(t.recorrencia==='diaria')return true;
+    if(t.recorrencia==='semanal'&&t.dias)return t.dias.indexOf(diaSem)>=0;
     if(t.recorrencia==='quinzenal'&&t.diaMes){{
-      var ref=new Date(t.diaMes+'T00:00:00'), hjd=new Date(hoje+'T00:00:00');
-      var diff=Math.round((hjd-ref)/86400000);
-      return diff>=0&&diff%14===0;
+      var ref=new Date(t.diaMes+'T00:00:00'),hjd=new Date(hoje+'T00:00:00');
+      return Math.round((hjd-ref)/86400000)%14===0;
     }}
     if(t.recorrencia==='mensal'&&t.diaMes){{
       return new Date(t.diaMes+'T00:00:00').getDate()===new Date().getDate();
@@ -146,38 +143,45 @@ function deveAvisarHoje(t){{
   return false;
 }}
 
-function checarNotificacoes(){{
-  var agora=new Date(), atual=agora.getHours()*60+agora.getMinutes();
+function checar(){{
+  // Sempre lê do localStorage — persiste entre reruns do Streamlit
+  var tarefas=JSON.parse(localStorage.getItem('gt_tarefas')||'[]');
   var fired=JSON.parse(localStorage.getItem('gt_fired')||'{{}}');
+  var agora=new Date(), atual=agora.getHours()*60+agora.getMinutes();
+  var hora_str=agora.toLocaleTimeString('pt-BR',{{hour:'2-digit',minute:'2-digit'}});
+  document.getElementById('status').textContent='⏱ Verificado às '+hora_str;
   tarefas.forEach(function(t){{
-    if(!deveAvisarHoje(t)) return;
+    if(!deveAvisar(t))return;
     var partes=(t.lembreteHora||'08:00').split(':');
     var alvo=parseInt(partes[0])*60+parseInt(partes[1]);
-    if(atual<alvo||atual>alvo+3) return;
+    if(atual<alvo||atual>alvo+3)return;
     var key=t.id+'_'+hoje+'_'+(t.lembreteHora||'08:00');
-    if(fired[key]) return;
-    fired[key]=true; localStorage.setItem('gt_fired',JSON.stringify(fired));
-    mostrarToast(t.titulo, t.desc||'');
+    if(fired[key])return;
+    fired[key]=true;localStorage.setItem('gt_fired',JSON.stringify(fired));
+    mostrarToast(t.titulo,t.desc||'');
   }});
 }}
 
-// Mostrar botão de permissão se ainda não foi dada
-if(window.Notification && Notification.permission==='default'){{
+// Permissão
+if(window.Notification&&Notification.permission==='default'){{
   document.getElementById('perm-btn').style.display='block';
 }}
 
 if(modo==='testar'){{
-  var t = tarefas.find(function(x){{ return x.lembrete; }});
-  mostrarToast(t ? t.titulo : 'Teste de aviso', t ? (t.desc||'') : 'Som e aviso funcionando!');
-}} else {{
-  checarNotificacoes();
-  setInterval(checarNotificacoes, 30000);
+  var tarefas=JSON.parse(localStorage.getItem('gt_tarefas')||'[]');
+  var t=tarefas.find(function(x){{return x.lembrete;}});
+  mostrarToast(t?t.titulo:'Teste de aviso',t?(t.desc||''):'Som e aviso funcionando!');
+}}
+
+// Inicia intervalo — persiste enquanto o iframe existir
+if(!window._gt_interval){{
+  window._gt_interval=setInterval(checar,30000);
+  checar();
 }}
 </script>
 </body>
 </html>"""
-    # altura 80 mostra o toast e o botão de permissão se necessário
-    st.components.v1.html(html, height=80, scrolling=False)
+    st.components.v1.html(html, height=90, scrolling=False)
 
 # ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
